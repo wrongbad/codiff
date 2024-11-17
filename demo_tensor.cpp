@@ -1,9 +1,9 @@
-#include "codiff/math.h"
-#include "codiff/tensor.h"
+#include "gaii/math.h"
+#include "gaii/tensor.h"
 
 #include <iostream>
 
-using namespace codiff;
+using namespace gaii;
 
 using dtype = tensor<float, 1>;
 

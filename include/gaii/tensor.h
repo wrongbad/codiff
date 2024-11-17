@@ -1,8 +1,9 @@
 #pragma once
 
 #include <concepts>
+#include <algorithm>
 
-namespace codiff {
+namespace gaii {
 
 
 template<class T, int... N>
@@ -38,7 +39,7 @@ Ta & assign(Ta & A, Tb && B);
 template<class T>
 struct tensor<T>
 {
-    using scalar_type = T;
+    using element_type = T;
 
     T m_data;
 
@@ -75,7 +76,7 @@ struct tensor<T>
 template<class T, int N0, int... Ns>
 struct tensor<T, N0, Ns...>
 {
-    using scalar_type = T;
+    using element_type = T;
     using subtensor = tensor<T, Ns...>;
 
     subtensor m_data[N0];
@@ -128,6 +129,8 @@ struct tensor<T, N0, Ns...>
     }
 };
 
+template<tensor_ref T>
+using element_type = typename T::element_type;
 
 template<class ostream, class T>
 ostream & operator<<(ostream & os, tensor<T> const& a)
@@ -146,6 +149,7 @@ ostream & operator<<(ostream & os, tensor<T, N0, Ns...> const& a)
     }
     return os << "]";
 }
+
 
 
 template<int N0, class Tensor>
@@ -247,6 +251,11 @@ Ta & assign(Ta & A, Tb && B)
     return A;
 }
 
+template<tensor_ref Ta>
+Ta & clamp_inplace(Ta & A, element_type<Ta> minv, element_type<Ta> maxv)
+{
+    return A.apply([&] (auto & a) { a = std::max(minv, std::min(a, maxv)); });
+}
 
 template<tensor_ref Ta>
 auto operator-(Ta const& A)
@@ -428,8 +437,17 @@ auto operator%(Ta const& a, Tb const& b)
 template<tensor_ref Ta>
 auto sum(Ta const& a)
 {
-    tensor<typename Ta::scalar_type> out = 0;
+    tensor<element_type<Ta>> out = 0;
     broadcast<0>(out, a, [] (auto & a, auto & b) { a.item() += b; });
+    return out;
+}
+
+template<tensor_ref Ta>
+auto max(Ta const& a)
+{
+    static_assert(Ta::size() > 0, "max requires > 0 elements");
+    tensor<element_type<Ta>> out = *a.raw();
+    broadcast<0>(a, [&] (auto & a) { out = std::max(out.item(), a.item()); });
     return out;
 }
 
@@ -445,6 +463,12 @@ float fast_exp(float a)
     p.i = 1056478197 + 6051102 * a; // exp(a/2)
     n.i = 1056478197 - 6051102 * a; // exp(-a/2)
     return p.f / n.f;
+}
+float fast_log(float a)
+{
+    // https://github.com/ekmett/approximate/blob/master/cbits/fast.c
+    union { float f; int32_t i; } u = { a };
+    return (u.i - 1064866805) * (1.0f / 12102203);
 }
 float fast_sigmoid(float a)
 {
@@ -463,20 +487,26 @@ float fast_tanh(float a)
     return (p.f - n.f) / (p.f + n.f);
 }
 
-template<std::floating_point Ta, int... N>
-tensor<Ta, N...> exp(tensor<Ta, N...> const& A)
+template<tensor_ref Ta>
+Ta exp(Ta const& A)
 {
     return broadcast<0>(A, [] (auto & a) { return fast_exp(a); });
 }
 
-template<std::floating_point Ta, int... N>
-tensor<Ta, N...> sigmoid(tensor<Ta, N...> const& A)
+template<tensor_ref Ta>
+Ta log(Ta const& A)
+{
+    return broadcast<0>(A, [] (auto & a) { return fast_log(a); });
+}
+
+template<tensor_ref Ta>
+Ta sigmoid(Ta const& A)
 {
     return broadcast<0>(A, [] (auto & a) { return fast_sigmoid(a); });
 }
 
-template<std::floating_point Ta, int... N>
-tensor<Ta, N...> tanh(tensor<Ta, N...> const& A)
+template<tensor_ref Ta>
+Ta tanh(Ta const& A)
 {
     return broadcast<0>(A, [] (auto & a) { return fast_tanh(a); });
 }
@@ -487,6 +517,12 @@ template<tensor_ref Ta>
 Ta exp(Ta const& A)
 {
     return broadcast<0>(A, std::exp);
+}
+
+template<tensor_ref Ta>
+Ta log(Ta const& A)
+{
+    return broadcast<0>(A, std::log);
 }
 
 template<tensor_ref Ta>
@@ -505,17 +541,32 @@ Ta sigmoid(Ta const& A)
 
 #endif // APPROX_MATH
 
+template<tensor_ref Ta>
+Ta sqrt(Ta const& A)
+{
+    return broadcast<0>(A, [] (auto & a) { return std::sqrt(a.item()); });
+}
 
 
+// TODO template Dim
+// template<class Ta, int... N, int Nlast>
+template<tensor_ref Ta>
+auto logsumexp(Ta && A)
+{
+    return broadcast<1>(A, [] (auto & x) {
+        auto mx = max(x);
+        return log(sum(exp(x - mx))) + mx;
+    });
+}
+
+// TODO template Dim
+template<class Ta, int... N>
+tensor<Ta, N...> log_softmax(tensor<Ta, N...> const& A)
+{
+    return broadcast<1>(A, [] (auto & x) {
+        return x - logsumexp(x);
+    });
+}
 
 
-// template<std::floating_point Ta, int... N>
-// tensor<Ta, N...> softmax(tensor<Ta, N...> const& A)
-// {
-//     return broadcast<1>(A, [] (auto & x) {
-
-//     });
-// }
-
-
-} // codiff
+} // gaii

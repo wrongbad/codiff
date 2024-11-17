@@ -1,8 +1,8 @@
-#include "codiff/math.h"
+#include "gaii/math.h"
 
 #include <iostream>
 
-using namespace codiff;
+using namespace gaii;
 
 struct Linear
 {

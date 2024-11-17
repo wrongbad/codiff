@@ -1,27 +1,19 @@
 #pragma once
 
-#include "codiff/var.h"
+#include "gaii/var.h"
 
 #include <exception>
 
 #if __has_include(<coroutine>)
 #include <coroutine>
-namespace codiff {
-    using std::coroutine_handle;
-    using std::suspend_always;
-    using std::suspend_never;
-}
+#define GAII_COROTINE_NAMESPACE std
 #else
 #include <experimental/coroutine>
-namespace codiff {
-    using std::experimental::coroutine_handle;
-    using std::experimental::suspend_always;
-    using std::experimental::suspend_never;
-}
+#define GAII_COROTINE_NAMESPACE std::experimental
 #endif
 
 
-namespace codiff {
+namespace gaii {
 
 template<class T>
 struct op;
@@ -29,13 +21,17 @@ struct op;
 template<class T>
 struct promise
 {
+    using suspend_always = GAII_COROTINE_NAMESPACE::suspend_always;
+    using suspend_never = GAII_COROTINE_NAMESPACE::suspend_never;
+    using coro_handle = GAII_COROTINE_NAMESPACE::coroutine_handle<promise>;
+
     T * m_value = nullptr;
 
     promise() = default;
 
     op<T> get_return_object() noexcept
     {
-        return { coroutine_handle<promise>::from_promise(*this) };
+        return { coro_handle::from_promise(*this) };
     }
 
     constexpr suspend_never initial_suspend() const noexcept { return {}; }
@@ -66,10 +62,11 @@ template<class T>
 struct op
 {
     using promise_type = promise<T>;
+    using coro_handle = typename promise_type::coro_handle;
+    
+    coro_handle m_coroutine;
 
-    coroutine_handle<promise_type> m_coroutine;
-
-    op(coroutine_handle<promise_type> coroutine) noexcept
+    op(coro_handle coroutine) noexcept
     :   m_coroutine(coroutine)
     {}
     op(op const& o) = delete;
@@ -90,46 +87,42 @@ struct op
 
     T& get() const { return m_coroutine.promise().value(); }
     T& operator*() const { return get(); }
+    T* operator->() const { return &get(); }
     operator T&() const { return get(); }
 
-    // auto & value() const { return get().value(); }
-    // auto & grad() const { return get().grad(); }
-    // template<class U = var_value_type<T>>
-    // void backward(U && dx = 1) { get().backward(dx); }
-
-    // void backward(auto && dx) { get().backward(dx); }
-    // void backward() { get().backward(); }
+    auto & get_value() const { return get().get_value(); }
+    auto & get_grad() const { return get().get_grad(); }
+    void backward(auto && grad) { get().backward(grad); }
 }; // struct op
+
 
 // template<class T>
 // struct var_traits<op<var<T>>>
 // {
 //     using value_type = T;
+//     static const bool diffable = true;
 // };
 
 
+// template<class T>
+// auto & value(op<T> const& v)
+// { 
+//     return value(*v);
+// }
+
+// template<class T>
+// void backward(op<T> const& v, auto && grad)
+// {
+//     backward(*v, grad);
+// }
 
 
-template<class T>
-auto & value(op<T> const& v)
-{ 
-    return value(*v);
-}
+} // namespace gaii
 
-template<class T>
-void backward(op<T> const& v, auto && grad)
-{
-    backward(*v, grad);
-}
-
-
-} // namespace codiff
-
-// TODO namespace properly
 template<class T, class... Args>
-struct std::experimental::coroutine_traits<codiff::op<T>, Args...>
+struct GAII_COROTINE_NAMESPACE::coroutine_traits<gaii::op<T>, Args...>
 {
     static_assert(!(std::is_rvalue_reference_v<Args> || ...), "rvalue reference will dangle");
 
-    using promise_type = codiff::promise<T>;
+    using promise_type = gaii::promise<T>;
 };
